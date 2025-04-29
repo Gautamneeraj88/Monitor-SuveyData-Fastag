@@ -18,55 +18,61 @@ async function connectDB() {
 
 // Fetch survey data and populate Surveyor
 async function fetchSurveyData() {
-  const surveys = await FastagSurveyAssigned.aggregate([
-    {
-      $group: {
-        _id: {
-          plazaName: "$Plaza Name",
-          plazaCode: "$Plaza Code",
-          surveyorId: "$surveyorId",
-        },
-        pendingCount: {
-          $sum: {
-            $cond: [{ $eq: ["$status", "Pending"] }, 1, 0],
+    const surveys = await FastagSurveyAssigned.aggregate([
+      {
+        $group: {
+          _id: {
+            plazaName: "$Plaza Name",
+            plazaCode: "$Plaza Code",
+            surveyorId: "$surveyorId",
+          },
+          pendingCount: {
+            $sum: {
+              $cond: [{ $eq: ["$status", "Pending"] }, 1, 0],
+            },
+          },
+          completedCount: {
+            $sum: {
+              $cond: [{ $eq: ["$status", "Completed"] }, 1, 0],
+            },
           },
         },
-        completedCount: {
-          $sum: {
-            $cond: [{ $eq: ["$status", "Completed"] }, 1, 0],
-          },
+      },
+      {
+        $lookup: {
+          from: "users", // collection name
+          localField: "_id.surveyorId",
+          foreignField: "_id",
+          as: "surveyorDetails",
         },
       },
-    },
-    {
-      $lookup: {
-        from: "users", // collection name (in lowercase usually)
-        localField: "_id.surveyorId",
-        foreignField: "_id",
-        as: "surveyorDetails",
+      {
+        $unwind: {
+          path: "$surveyorDetails",
+          preserveNullAndEmptyArrays: true,
+        },
       },
-    },
-    {
-      $unwind: {
-        path: "$surveyorDetails",
-        preserveNullAndEmptyArrays: true,
+      {
+        $project: {
+          plazaName: "$_id.plazaName",
+          plazaCode: "$_id.plazaCode",
+          surveyorId: "$_id.surveyorId",
+          pendingCount: 1,
+          completedCount: 1,
+          surveyorName: "$surveyorDetails.name",
+          mobNum: "$surveyorDetails.mobNum",
+        },
       },
-    },
-    {
-      $project: {
-        plazaName: "$_id.plazaName",
-        plazaCode: "$_id.plazaCode",
-        surveyorId: "$_id.surveyorId",
-        pendingCount: 1,
-        completedCount: 1,
-        surveyorName: "$surveyorDetails.name",
-        mobNum: "$surveyorDetails.mobNum",
+      {
+        $match: {
+          surveyorName: { $nin: ["Neeraj Gautam", "Pritam Mandle"] },
+        },
       },
-    },
-  ]);
-
-  return surveys;
-}
+    ]);
+  
+    return surveys;
+  }
+  
 
 // Write to Excel (smart updating)
 function writeToExcel(data) {
