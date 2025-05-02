@@ -1,3 +1,6 @@
 node_modules
 .env
 output
+monitor.log
+surveyStatus.xlsx
+surveyData.xlsx

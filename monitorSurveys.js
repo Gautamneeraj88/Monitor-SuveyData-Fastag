@@ -291,10 +291,14 @@ function showOnTerminal(data) {
     colWidths: [25, 15, 15, 25, 15, 10, 10, 15, 20],
   });
 
-  let totalPending = 0;
-  let totalCompleted = 0;
+  // ✅ Calculate total from all data
+  const totalPending = data.reduce((sum, entry) => sum + entry.pendingCount, 0);
+  const totalCompleted = data.reduce(
+    (sum, entry) => sum + entry.completedCount,
+    0,
+  );
 
-  // Display only the latest 20 entries for better visibility
+  // Display only the latest 20 entries
   const recentData = data.slice(0, 20);
 
   recentData.forEach((entry) => {
@@ -313,11 +317,9 @@ function showOnTerminal(data) {
       entry.latestStatus || "-",
       updatedAt,
     ]);
-
-    totalPending += entry.pendingCount;
-    totalCompleted += entry.completedCount;
   });
 
+  // ✅ Totals reflect full dataset, not just 20 rows
   table.push([
     { colSpan: 5, content: "TOTAL", hAlign: "center" },
     totalPending,
