@@ -4,7 +4,7 @@ import AWS from "aws-sdk";
 import fs from "fs";
 import path from "path";
 import dotenv from "dotenv";
-import cliProgress from "cli-progress"; // ✅ NEW
+import cliProgress from "cli-progress";
 
 import FastagSurveyData from "./models/fastagSurveyData.js";
 import FastagSurveyAssigned from "./models/fastagSuveyAssigned.schema.js";
@@ -13,10 +13,7 @@ import User from "./models/user.schema.js";
 dotenv.config();
 
 // MongoDB connection
-await mongoose.connect(process.env.MONGO_URI, {
-  useNewUrlParser: true,
-  useUnifiedTopology: true,
-});
+await mongoose.connect(process.env.MONGO_URI);
 console.log("✅ Connected to MongoDB");
 
 // Constants
@@ -46,11 +43,18 @@ if (fs.existsSync(EXCEL_PATH)) {
   await workbook.xlsx.readFile(EXCEL_PATH);
   sheet = workbook.getWorksheet("Survey Data");
 
-  // Read existing _id and createdAt
+  // Map header keys to column indexes
+  const headerRow = sheet.getRow(1);
+  const columnIndexMap = {};
+  headerRow.eachCell((cell, colNumber) => {
+    columnIndexMap[cell.value] = colNumber;
+  });
+
+  // Read existing _id and createdAt values
   sheet.eachRow({ includeEmpty: false }, (row, rowNum) => {
     if (rowNum === 1) return;
-    const rowId = row.getCell("_id").value;
-    const createdAt = new Date(row.getCell("createdAt").value);
+    const rowId = row.getCell(columnIndexMap["_id"]).value;
+    const createdAt = new Date(row.getCell(columnIndexMap["createdAt"]).value);
     if (rowId) existingIds.add(rowId.toString());
     if (!lastCreatedAt || createdAt > lastCreatedAt) {
       lastCreatedAt = createdAt;
@@ -81,7 +85,7 @@ if (fs.existsSync(EXCEL_PATH)) {
   ];
 }
 
-// Query filters
+// MongoDB query
 const query = {};
 if (lastCreatedAt) {
   query.createdAt = { $gt: lastCreatedAt };
@@ -91,17 +95,16 @@ console.log("📦 Fetching new survey data...");
 const surveys = await FastagSurveyData.find(query).lean();
 console.log(`📊 Total new surveys: ${surveys.length}`);
 
-// Setup progress bar
+// Progress bar
 const progressBar = new cliProgress.SingleBar({
-  format:
-    "⬇️  Downloading Videos |{bar}| {percentage}% || {value}/{total} Files",
+  format: "⬇️  Downloading Videos |{bar}| {percentage}% || {value}/{total} Files",
   barCompleteChar: "█",
   barIncompleteChar: "-",
   hideCursor: true,
 });
 progressBar.start(surveys.length, 0);
 
-// For state mapping
+// Map plaza names to states
 const plazaToStateMap = {
   Sosokhurd: "Jharkhand",
   Bankapur: "Karnataka",
@@ -134,7 +137,6 @@ const plazaToStateMap = {
   "Nalavadi Toll Plaza": "Karnataka",
 };
 
-// Process new data
 let newRows = 0;
 let processed = 0;
 
@@ -150,22 +152,19 @@ for (const survey of surveys) {
   const fileName = path.basename(videoKey);
   const localFilePath = path.join(VIDEO_DIR, fileName);
 
-  const assignedSurvey = await FastagSurveyAssigned.findById(
-    survey.surveyId,
-  ).lean();
+  const assignedSurvey = await FastagSurveyAssigned.findById(survey.surveyId).lean();
   const surveyor = await User.findById(assignedSurvey?.surveyorId).lean();
 
+  // Download video
   try {
-    const params = {
-      Bucket: process.env.S3BUCKET_NAME,
-      Key: videoKey,
-    };
+    const params = { Bucket: process.env.S3BUCKET_NAME, Key: videoKey };
     const s3Data = await s3.getObject(params).promise();
     fs.writeFileSync(localFilePath, s3Data.Body);
   } catch (err) {
     console.error(`❌ Failed to download ${videoKey}: ${err.message}`);
   }
 
+  // Append new row
   sheet.addRow({
     _id: survey._id.toString(),
     surveyId: survey.surveyId?.toString(),
@@ -202,3 +201,4 @@ if (newRows === 0) {
 
 console.log("✅ Done.");
 process.exit(0);
+

@@ -1,45 +1,51 @@
 import mongoose from "mongoose";
 import FastagSurveyAssigned from "./models/fastagSuveyAssigned.schema.js";
-import User from "./models/user.schema.js"; // Assuming you save user model here
+import User from "./models/user.schema.js";
 import dotenv from "dotenv";
 import xlsx from "xlsx";
 import Table from "cli-table3";
 import fs from "fs";
 import { format } from "date-fns";
+import axios from "axios";
+import * as cheerio from "cheerio";
 
 dotenv.config();
 
-const plazaToStateMap = {
-  Sosokhurd: "Jharkhand",
-  Bankapur: "Karnataka",
-  Vanagiri: "Karnataka",
-  "Km. 288.00 Near Hitnal Vill.": "Karnataka",
-  Manavasi: "Tamil Nadu",
-  Poonambalapatti: "Tamil Nadu",
-  Kozhinjiipatti: "Tamil Nadu",
-  "Rasampalayam Plaza": "Tamil Nadu",
-  Velanchettiyur: "Tamil Nadu",
-  Parsoni: "Bihar",
-  Pokhraira: "Bihar",
-  "Dalsagar Toll Plaza": "Bihar",
-  TandBalidih: "Jharkhand",
-  "Nagwan Toll Plaza": "Jharkhand",
-  Edalhatu: "Jharkhand",
-  Jharpokhria: "Odisha",
-  Padmanavpur: "Odisha",
-  Gurapalli: "Odisha",
-  "Saidpur Patedha": "Bihar",
-  "Saidpur Patedha Toll": "Bihar",
-  "Kharik Toll": "Jharkhand",
-  Hazaribag: "Jharkhand",
-  "Ghanghri(Kulgo)": "Jharkhand",
-  Bellyad: "West Bengal",
-  "Halligudi Fee Plaza": "Karnataka",
-  "Nalavida Toll": "Karnataka",
-  "Kodai Road (Kozhinjipatti)": "Tamil Nadu",
-  "Parsoni Khem": "Bihar",
-  "Nalavadi Toll Plaza": "Karnataka",
-};
+async function fetchPlazaDetails(plazaName) {
+  try {
+    const response = await axios.post(
+      "https://tis.nhai.gov.in/TollPlazaService.asmx/GetTollPlazaInfoGrid",
+      { TollName: plazaName },
+      {
+        headers: {
+          "Content-Type": "application/json; charset=utf-8",
+          "X-Requested-With": "XMLHttpRequest",
+        },
+      },
+    );
+
+    const html = response.data.d;
+    const $ = cheerio.load(html);
+    const row = $("table.tab tr").eq(1);
+
+    return {
+      state: row.find("td").eq(1).text().trim() || "Unknown",
+      nhNo: row.find("td").eq(2).text().trim() || "Unknown",
+      location: row.find("td").eq(4).text().trim() || "Unknown",
+      sectionStretch: row.find("td").eq(5).text().trim() || "Unknown",
+    };
+  } catch (err) {
+    console.error(
+      `❌ Error fetching plaza info for ${plazaName}: ${err.message}`,
+    );
+    return {
+      state: "Unknown",
+      nhNo: "Unknown",
+      location: "Unknown",
+      sectionStretch: "Unknown",
+    };
+  }
+}
 
 async function connectDB() {
   await mongoose.connect(process.env.MONGO_URI, {
@@ -68,12 +74,14 @@ async function fetchSurveyData() {
         mobNum: doc.surveyorId?.mobNum || "-",
         pendingCount: 0,
         completedCount: 0,
+        draftedCount: 0,
         createdAt: dateKey,
       };
     }
 
     if (doc.status === "Pending") grouped[key].pendingCount += 1;
     else if (doc.status === "Completed") grouped[key].completedCount += 1;
+    else if (doc.status === "Drafted") grouped[key].draftedCount += 1;
   });
 
   const result = Object.values(grouped).filter(
@@ -92,11 +100,15 @@ function writeToExcel(data) {
   const header = [
     "Plaza Name",
     "State",
+    "NH-No.",
     "Plaza Code",
+    "Location",
+    "Section/Stretch",
     "Surveyor Name",
     "Mobile Number",
     "Pending",
     "Completed",
+    "Drafted",
     "CreatedAt",
   ];
 
@@ -117,20 +129,24 @@ function writeToExcel(data) {
     const index = rows.findIndex(
       (row) =>
         row[0] === entry.plazaName &&
-        row[2] === entry.plazaCode &&
-        row[3] === entry.surveyorName &&
-        row[4] === entry.mobNum &&
-        row[7] === entry.createdAt,
+        row[3] === entry.plazaCode &&
+        row[6] === entry.surveyorName &&
+        row[7] === entry.mobNum &&
+        row[11] === entry.createdAt,
     );
 
     const newRow = [
       entry.plazaName,
       entry.state || "-",
+      entry.nhNo || "-",
       entry.plazaCode,
+      entry.location || "-",
+      entry.sectionStretch || "-",
       entry.surveyorName || "-",
       entry.mobNum || "-",
       entry.pendingCount,
       entry.completedCount,
+      entry.draftedCount,
       entry.createdAt || "-",
     ];
 
@@ -149,41 +165,50 @@ function writeToExcel(data) {
 function showOnTerminal(data) {
   const table = new Table({
     head: [
-      "Plaza Name",
+      "Plaza",
       "State",
-      "Plaza Code",
+      "NH-No.",
+      "Location",
+      "Section/Stretch",
       "Surveyor",
       "Mobile",
       "Pending",
       "Completed",
-      "CreatedAt",
+      "Drafted",
+      "Date",
     ],
-    colWidths: [25, 15, 15, 25, 15, 10, 10, 20],
+    colWidths: [20, 12, 8, 20, 25, 20, 12, 8, 10, 8, 12],
   });
 
   let totalPending = 0;
   let totalCompleted = 0;
+  let totalDrafted = 0;
 
   data.forEach((entry) => {
     table.push([
       entry.plazaName,
-      entry.state || "-",
-      entry.plazaCode || "-",
-      entry.surveyorName || "-",
-      entry.mobNum || "-",
+      entry.state,
+      entry.nhNo,
+      entry.location,
+      entry.sectionStretch,
+      entry.surveyorName,
+      entry.mobNum,
       entry.pendingCount,
       entry.completedCount,
-      entry.createdAt || "-",
+      entry.draftedCount,
+      entry.createdAt,
     ]);
 
     totalPending += entry.pendingCount;
     totalCompleted += entry.completedCount;
+    totalDrafted += entry.draftedCount;
   });
 
   table.push([
-    { colSpan: 5, content: "TOTAL", hAlign: "center" },
+    { colSpan: 7, content: "TOTAL", hAlign: "center" },
     totalPending,
     totalCompleted,
+    totalDrafted,
     "",
   ]);
 
@@ -197,16 +222,25 @@ async function main() {
     await connectDB();
     const surveys = await fetchSurveyData();
 
-    const formattedData = surveys.map((s) => ({
-      plazaName: s.plazaName,
-      state: plazaToStateMap[s.plazaName] || "-",
-      plazaCode: s.plazaCode,
-      pendingCount: s.pendingCount,
-      completedCount: s.completedCount,
-      surveyorName: s.surveyorName,
-      mobNum: s.mobNum,
-      createdAt: s.createdAt,
-    }));
+    const formattedData = [];
+
+    for (const s of surveys) {
+      const details = await fetchPlazaDetails(s.plazaName);
+      formattedData.push({
+        plazaName: s.plazaName,
+        state: details.state,
+        nhNo: details.nhNo,
+        plazaCode: s.plazaCode,
+        location: details.location,
+        sectionStretch: details.sectionStretch,
+        pendingCount: s.pendingCount,
+        completedCount: s.completedCount,
+        draftedCount: s.draftedCount,
+        surveyorName: s.surveyorName,
+        mobNum: s.mobNum,
+        createdAt: s.createdAt,
+      });
+    }
 
     showOnTerminal(formattedData);
     writeToExcel(formattedData);

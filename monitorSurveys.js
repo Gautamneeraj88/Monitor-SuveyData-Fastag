@@ -149,6 +149,9 @@ async function fetchSurveyData(lastUpdatedAt, trackedIds) {
         completedCount: {
           $sum: { $cond: [{ $eq: ["$status", "Completed"] }, 1, 0] },
         },
+        draftedCount: {
+          $sum: { $cond: [{ $eq: ["$status", "Drafted"] }, 1, 0]},
+        },
         updatedAt: { $max: "$updatedAt" },
         latestStatus: { $last: "$status" },
       },
@@ -176,6 +179,7 @@ async function fetchSurveyData(lastUpdatedAt, trackedIds) {
         documentId: "$_id.documentId",
         pendingCount: 1,
         completedCount: 1,
+        draftedCount: 1,
         createdAt: "$_id.createdAt",
         updatedAt: 1,
         latestStatus: 1,
@@ -212,6 +216,7 @@ function writeToExcel(data) {
     "Mobile Number",
     "Pending",
     "Completed",
+    "Drafted",
     "Latest Status",
     "Created Date",
     "Last Updated",
@@ -254,6 +259,7 @@ function writeToExcel(data) {
       entry.mobNum || "-",
       entry.pendingCount,
       entry.completedCount,
+      entry.draftedCount,
       entry.latestStatus || "-",
       entry.createdAt,
       formattedDate,
@@ -285,6 +291,7 @@ function showOnTerminal(data) {
       "Mobile",
       "Pending",
       "Completed",
+      "Drafted",
       "Latest Status",
       "Last Updated",
     ],
@@ -297,6 +304,7 @@ function showOnTerminal(data) {
     (sum, entry) => sum + entry.completedCount,
     0,
   );
+  const totalDrafted = data.reduce( (sum, entry) => sum + entry.draftedCount, 0,);
 
   // Display only the latest 20 entries
   const recentData = data.slice(0, 20);
@@ -314,6 +322,7 @@ function showOnTerminal(data) {
       entry.mobNum || "-",
       entry.pendingCount,
       entry.completedCount,
+      entry.draftedCount,
       entry.latestStatus || "-",
       updatedAt,
     ]);
@@ -324,6 +333,7 @@ function showOnTerminal(data) {
     { colSpan: 5, content: "TOTAL", hAlign: "center" },
     totalPending,
     totalCompleted,
+    totalDrafted,
     "",
     "",
   ]);
@@ -335,7 +345,7 @@ function showOnTerminal(data) {
   console.log(`Showing latest ${recentData.length} of ${data.length} entries`);
   console.log(table.toString());
 
-  return { totalPending, totalCompleted };
+  return { totalPending, totalCompleted, totalDrafted };
 }
 
 // Main monitoring function
@@ -358,9 +368,10 @@ async function main() {
     let rowCount = writeToExcel(allData);
 
     if (allData.length > 0) {
-      const { totalPending, totalCompleted } = showOnTerminal(allData);
+      const { totalPending, totalCompleted, totalDrafted } = showOnTerminal(allData);
+      
       log(
-        `Initial data loaded: ${allData.length} entries (${totalPending} pending, ${totalCompleted} completed)`,
+        `Initial data loaded: ${totalPending+totalCompleted} entries (${totalPending} pending, ${totalCompleted} completed,  ${totalDrafted} drafted)`,
       );
     } else {
       log("No initial data found");
@@ -404,9 +415,9 @@ async function main() {
           rowCount = writeToExcel(newData);
 
           // Update terminal display
-          const { totalPending, totalCompleted } = showOnTerminal(allData);
+          const { totalPending, totalCompleted, totalDrafted } = showOnTerminal(allData);
           log(
-            `Updated with ${newData.length} new entries (Total: ${allData.length}, Pending: ${totalPending}, Completed: ${totalCompleted})`,
+            `Updated with ${totalPending+totalCompleted} new entries (Total: ${allData.length}, Pending: ${totalPending}, Completed: ${totalCompleted},  ${totalDrafted} drafted)`,
           );
         }
       } catch (error) {
