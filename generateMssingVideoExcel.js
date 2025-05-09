@@ -40,12 +40,12 @@ const doesVideoExistOnS3 = async (key) => {
 };
 
 // Upload to S3
-const uploadToS3 = async (filePath, key) => {
+const uploadToS3 = async (filePath, key, surveyorId) => {
   const fileContent = fs.readFileSync(filePath);
   await s3
     .upload({
       Bucket: BUCKET_NAME,
-      Key: key,
+      Key: `${surveyorId}-${key}`,
       Body: fileContent,
     })
     .promise();
@@ -63,7 +63,7 @@ const run = async () => {
       format:
         "🔍 Checking videos [{bar}] {percentage}% | {value}/{total} processed",
     },
-    cliProgress.Presets.shades_classic,
+    cliProgress.Presets.shades_classic
   );
   checkBar.start(surveyDataList.length, 0);
 
@@ -76,7 +76,9 @@ const run = async () => {
       const survey = await FastagSurveyAssigned.findById(data.surveyId).lean();
       if (!survey) continue;
 
-      const user = await User.findById(survey.surveyorId).lean();
+      const user = await User.findById(survey.surveyorId)
+        .select("name mobNum email employeeCode designation companyName _id")
+        .lean();
       if (!user) continue;
 
       missingVideos.push({
@@ -84,6 +86,7 @@ const run = async () => {
         SurveyID: data.surveyId.toString(),
         SurveyorName: user.name,
         MobileNumber: user.mobNum,
+        SurveyorID: user._id.toString(),
         Email: user.email,
         EmployeeCode: user.employeeCode || "",
         Designation: user.designation || "",
@@ -133,7 +136,7 @@ const run = async () => {
   });
 
   const answer = await rl.question(
-    "❓ Do you want to upload missing videos from 'videos/' folder to S3 now? (yes/no): ",
+    "❓ Do you want to upload missing videos from 'videos/' folder to S3 now? (yes/no): "
   );
 
   if (answer.trim().toLowerCase() === "yes") {
@@ -141,7 +144,7 @@ const run = async () => {
 
     const uploadBar = new cliProgress.SingleBar(
       { format: "📤 Uploading [{bar}] {percentage}% | {value}/{total} done" },
-      cliProgress.Presets.shades_classic,
+      cliProgress.Presets.shades_classic
     );
     uploadBar.start(missingVideos.length, 0);
 
@@ -149,25 +152,24 @@ const run = async () => {
       const localFile = fs
         .readdirSync(videoDir)
         .find(
-          (f) => f === item.VideoProofKey || f.startsWith(item.VideoProofKey),
+          (f) => f === item.VideoProofKey || f.startsWith(item.VideoProofKey)
         );
-
+      console.log("localFile", localFile);
       if (localFile) {
         const localPath = path.join(videoDir, localFile);
         const s3Exists = await doesVideoExistOnS3(localFile);
 
         if (!s3Exists) {
           try {
-            await uploadToS3(localPath, localFile);
+            await uploadToS3(localPath, localFile, item.SurveyorID);
             item.Status = "Uploaded";
 
-            if (item.VideoProofKey !== localFile) {
-              await FastagSurveyData.updateOne(
-                { _id: item._id },
-                { $set: { videoProof: localFile } },
-              );
-              item.VideoProofKey = localFile;
-            }
+            await FastagSurveyData.updateOne(
+              { _id: item._id },
+              { $set: { videoProof: `${item.SurveyorID}-${localFile}` } }
+            );
+            item.VideoProofKey = `${item.SurveyorID}-${localFile}`;
+            console.log(`✅ Uploaded: ${item.SurveyorID}-${localFile}`);
           } catch (err) {
             item.Status = "Upload Failed";
             console.error(`❌ Failed: ${localFile} –`, err.message);
