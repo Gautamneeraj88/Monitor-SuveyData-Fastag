@@ -4,3 +4,4 @@ output
 monitor.log
 surveyStatus.xlsx
 surveyData.xlsx
+*.xlsx

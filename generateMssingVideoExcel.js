@@ -91,6 +91,7 @@ const run = async () => {
         EmployeeCode: user.employeeCode || "",
         Designation: user.designation || "",
         CompanyName: user.companyName || "",
+        
         PlazaName: data["Plaza Name"] || "",
         PlazaCode: data["Plaza Code"] || "",
         StartTime: data.startTime,
