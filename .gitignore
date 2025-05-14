@@ -5,3 +5,5 @@ monitor.log
 surveyStatus.xlsx
 surveyData.xlsx
 *.xlsx
+downloaded_videos
+*.mp4
