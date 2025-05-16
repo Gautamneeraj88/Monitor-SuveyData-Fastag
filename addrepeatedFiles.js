@@ -1,5 +1,6 @@
 import FastagSurveyData from "./models/fastagSurveyData.js";
 import FastagSurveyAssigned from "./models/fastagSuveyAssigned.schema.js";
+import User from "./models/user.schema.js";
 import mongoose from "mongoose";
 import dotenv from "dotenv";
 import {
@@ -123,14 +124,14 @@ async function askQuestion(question) {
 
 async function copyData(surveyorId) {
   await connectDB();
-
+  const user = await User.findById(surveyorId).select("name");
   // Step 1: Fetch surveys assigned to the surveyor
   const assignedSurveys = await FastagSurveyAssigned.find({
     surveyorId,
     status: "Completed",
   });
   console.log(
-    `Found ${assignedSurveys.length} surveys assigned to surveyor ${surveyorId}`
+    `Found ${assignedSurveys.length} surveys assigned to surveyor ${user.name}`
   );
 
   if (assignedSurveys.length === 0) {
@@ -187,13 +188,14 @@ async function copyData(surveyorId) {
 
   if (surveysWithoutValidVideos.length === 0) {
     console.log("No surveys need videos");
-    return;
+    process.exit(0);
   }
 
   // Step 4: Download videos (up to 100)
   const downloadDir = "./downloaded_videos";
   if (!fs.existsSync(downloadDir)) {
     fs.mkdirSync(downloadDir);
+    fs.mkdirSync(path.join(downloadDir, "uploads"));
   }
 
   const videosToUse = [];
@@ -247,7 +249,7 @@ async function copyData(surveyorId) {
 
   if (!shouldUpload) {
     console.log("Upload cancelled");
-    return;
+    process.exit(0);
   }
 
   // Step 6: Upload videos to surveys without valid videos
@@ -306,7 +308,9 @@ async function copyData(surveyorId) {
   process.exit(0);
 }
 
-copyData("6800b7bfce77d77fc33b28e0").catch((error) => {
+copyData("6808a70545457f7095da6f07").then(async() => {
+  await fs.rmdirSync("./downloaded_videos", { recursive: true });
+}).catch((error) => {
   console.error("Error in copyData:", error);
   process.exit(1);
 });

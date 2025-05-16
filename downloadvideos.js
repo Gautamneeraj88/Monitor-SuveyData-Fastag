@@ -44,4 +44,4 @@ async function downloadFromS3(s3Key, downloadPath) {
   }
 }
 
-downloadFromS3("uploads/1747193147170_noriei.668Z","video.mp4")
+downloadFromS3("uploads/1747224813782_vlxalx.507Z","video.mp4")
